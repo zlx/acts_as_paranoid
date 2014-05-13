@@ -94,7 +94,7 @@ module ActsAsParanoid
         run_callbacks :destroy do
           destroy_dependent_associations!
           # Handle composite keys, otherwise we would just use `self.class.primary_key.to_sym => self.id`.
-          self.class.delete_all!(Hash[[Array(self.class.primary_key), Array(self.id)].transpose])
+          self.class.delete_all!(Hash[[Array(self.class.primary_key), Array(self.id)].transpose]) if persisted?
           self.paranoid_value = self.class.delete_now_value
           freeze
         end
@@ -106,7 +106,7 @@ module ActsAsParanoid
         with_transaction_returning_status do
           run_callbacks :destroy do
             # Handle composite keys, otherwise we would just use `self.class.primary_key.to_sym => self.id`.
-            self.class.delete_all(Hash[[Array(self.class.primary_key), Array(self.id)].transpose])
+            self.class.delete_all(Hash[[Array(self.class.primary_key), Array(self.id)].transpose]) if persisted?
             self.paranoid_value = self.class.delete_now_value
             self
           end
@@ -134,17 +134,17 @@ module ActsAsParanoid
 
     def recover_dependent_associations(window, options)
       self.class.dependent_associations.each do |reflection|
-        next unless reflection.klass.paranoid?
+        next unless (klass = get_reflection_class(reflection)).paranoid?
 
-        scope = reflection.klass.only_deleted
+        scope = klass.only_deleted
 
         # Merge in the association's scope
         scope = scope.merge(association(reflection.name).association_scope)
 
         # We can only recover by window if both parent and dependant have a
         # paranoid column type of :time.
-        if self.class.paranoid_column_type == :time && reflection.klass.paranoid_column_type == :time
-          scope = scope.merge(reflection.klass.deleted_inside_time_window(paranoid_value, window))
+        if self.class.paranoid_column_type == :time && klass.paranoid_column_type == :time
+          scope = scope.merge(klass.deleted_inside_time_window(paranoid_value, window))
         end
 
         scope.each do |object|
@@ -155,9 +155,9 @@ module ActsAsParanoid
 
     def destroy_dependent_associations!
       self.class.dependent_associations.each do |reflection|
-        next unless reflection.klass.paranoid?
+        next unless (klass = get_reflection_class(reflection)).paranoid?
 
-        scope = reflection.klass.only_deleted
+        scope = klass.only_deleted
 
         # Merge in the association's scope
         scope = scope.merge(association(reflection.name).association_scope)
@@ -176,6 +176,14 @@ module ActsAsParanoid
     alias_method :destroyed?, :deleted?
 
     private
+
+    def get_reflection_class(reflection)
+      if reflection.macro == :belongs_to && reflection.options.include?(:polymorphic)
+        self.send(reflection.foreign_type).constantize
+      else
+        reflection.klass
+      end
+    end
 
     def paranoid_value=(value)
       self.send("#{self.class.paranoid_column}=", value)

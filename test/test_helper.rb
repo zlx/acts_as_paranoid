@@ -1,16 +1,20 @@
-require 'rubygems'
-require 'test/unit'
-require 'active_support'
-require 'active_record'
-require 'active_model'
+require 'bundler'
+begin
+  Bundler.require(:default, :development)
+rescue Bundler::BundlerError => e
+  $stderr.puts e.message
+  $stderr.puts "Run `bundle install` to install missing gems"
+  exit e.status_code
+end
 
-$:.unshift "#{File.dirname(__FILE__)}/../"
-$:.unshift "#{File.dirname(__FILE__)}/../lib/"
-$:.unshift "#{File.dirname(__FILE__)}/../lib/validations"
+require 'acts_as_paranoid'
+require 'minitest/autorun'
 
-require 'init'
+# Silence deprecation halfway through the test
+I18n.enforce_available_locales = true
 
 ActiveRecord::Base.establish_connection(:adapter => "sqlite3", :database => ":memory:")
+ActiveRecord::Schema.verbose = false
 
 def setup_db
   ActiveRecord::Schema.define(:version => 1) do
@@ -74,52 +78,52 @@ def setup_db
 
       t.timestamps
     end
-    
+
     create_table :paranoid_with_callbacks do |t|
       t.string    :name
       t.datetime  :deleted_at
-      
+
       t.timestamps
     end
 
     create_table :paranoid_destroy_companies do |t|
       t.string :name
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :paranoid_delete_companies do |t|
       t.string :name
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :paranoid_products do |t|
       t.integer :paranoid_destroy_company_id
       t.integer :paranoid_delete_company_id
       t.string :name
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :super_paranoids do |t|
       t.string :type
       t.references :has_many_inherited_super_paranoidz
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :has_many_inherited_super_paranoidzs do |t|
       t.references :super_paranoidz
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :paranoid_many_many_parent_lefts do |t|
       t.string :name
       t.timestamps
@@ -129,14 +133,14 @@ def setup_db
       t.string :name
       t.timestamps
     end
-    
+
     create_table :paranoid_many_many_children do |t|
       t.integer :paranoid_many_many_parent_left_id
       t.integer :paranoid_many_many_parent_right_id
       t.datetime :deleted_at
       t.timestamps
     end
-    
+
     create_table :paranoid_with_scoped_validations do |t|
       t.string :name
       t.string :category
@@ -148,15 +152,15 @@ def setup_db
       t.string   :name
       t.boolean  :rainforest
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
-    
+
     create_table :paranoid_trees do |t|
       t.integer  :paranoid_forest_id
       t.string   :name
       t.datetime :deleted_at
-      
+
       t.timestamps
     end
 
@@ -165,6 +169,17 @@ def setup_db
       t.datetime :deleted_at
 
       t.timestamps
+    end
+
+    create_table :paranoid_androids do |t|
+      t.datetime :deleted_at
+    end
+
+    create_table :paranoid_sections do |t|
+      t.integer   :paranoid_time_id
+      t.integer   :paranoid_thing_id
+      t.string    :paranoid_thing_type
+      t.datetime :deleted_at
     end
   end
 end
@@ -183,6 +198,7 @@ class ParanoidTime < ActiveRecord::Base
   has_many :paranoid_has_many_dependants, :dependent => :destroy
   has_many :paranoid_booleans, :dependent => :destroy
   has_many :not_paranoids, :dependent => :delete_all
+  has_many :paranoid_sections, :dependent => :destroy
 
   has_one :has_one_not_paranoid, :dependent => :destroy
 
@@ -237,31 +253,31 @@ end
 
 class ParanoidWithCallback < ActiveRecord::Base
   acts_as_paranoid
-  
+
   attr_accessor :called_before_destroy, :called_after_destroy, :called_after_commit_on_destroy
   attr_accessor :called_before_recover, :called_after_recover
-  
+
   before_destroy :call_me_before_destroy
   after_destroy :call_me_after_destroy
-  
+
   after_commit :call_me_after_commit_on_destroy, :on => :destroy
 
   before_recover :call_me_before_recover
   after_recover :call_me_after_recover
-  
+
   def initialize(*attrs)
     @called_before_destroy = @called_after_destroy = @called_after_commit_on_destroy = false
     super(*attrs)
   end
-  
+
   def call_me_before_destroy
     @called_before_destroy = true
   end
-  
+
   def call_me_after_destroy
     @called_after_destroy = true
   end
-  
+
   def call_me_after_commit_on_destroy
     @called_after_commit_on_destroy = true
   end
@@ -369,17 +385,17 @@ class ParanoidBaseTest < ActiveSupport::TestCase
   def teardown
     teardown_db
   end
-  
+
   def assert_empty(collection)
     assert(collection.respond_to?(:empty?) && collection.empty?)
   end
-  
+
   def assert_paranoid_deletion(model)
     row = find_row(model)
     assert_not_nil row, "#{model.class} entirely deleted"
     assert_not_nil row["deleted_at"], "Deleted at not set"
   end
-  
+
   def assert_non_paranoid_deletion(model)
     row = find_row(model)
     assert_nil row, "#{model.class} still exists"
@@ -413,4 +429,14 @@ end
 class ParanoidHuman < ActiveRecord::Base
   acts_as_paranoid
   default_scope where('gender = ?', 'male')
+end
+
+class ParanoidAndroid < ActiveRecord::Base
+  acts_as_paranoid
+end
+
+class ParanoidSection < ActiveRecord::Base
+  acts_as_paranoid
+  belongs_to :paranoid_time
+  belongs_to :paranoid_thing, :polymorphic => true, :dependent => :destroy
 end
